@@ -58,7 +58,7 @@ As with any tool you need to match some requisites, to run this script you need:
 You can take a peek on the eutelia options by just runnig it.
 
 ```sh
-~$ ./eutelia 
+~$ ./eutelia
 Eutelia: Script for security tests on mail servers by @stdevPavelmc
 https://github.com/stdevPavelmc/eutelia
 
@@ -120,4 +120,3 @@ As in life, you need to receive and analyze all the data *in your environment an
 If this script is of any help to you please take into account that I make this for free and you can help me by donating some amount via QvaPay in this link
 
 [Tip the developer via QvaPay](https://qvapay.com/payme/pavelmc)
-

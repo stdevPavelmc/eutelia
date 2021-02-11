@@ -106,22 +106,11 @@ function main {
         # Open relay
         smtpOpenRelay
 
-        # Send an email to the outside as a valid user with auth
-        submissionAsAdminToInet
-
-        # Send an email via submission auth to a non existen domain email
-        submissionToNonExistenLocalRecipient
-
-        # Test submission auth with ID spoffing
-        submissionLocalAuthNotSender
-
         # Testing SPF
         smtpImpersonatingServerSPF
 
         # Local valid user send local with no auth SMTP (must fail, need auth but no possible under SMTP) with no encryption
         smtpFromExistenLocalRecipientNoAuth
-
-
     fi
 
     # optional test no matter what mode
@@ -137,7 +126,6 @@ function main {
 
     exit 0
 }
-
 
 # header
 function showHeader {
@@ -271,7 +259,6 @@ function isconfig {
 }
 
 ##### Mail testing functions
-
 
 ### connectivity
 
@@ -563,7 +550,7 @@ function smtpFromExistenLocalRecipientNoAuth {
     echo "===> Testing if the server accepts emails from local users without auth (SMTP)" >> $LOG
 
     USER=`mktemp | cut -d '/' -f 3`
-    $SOFT -s $SERVER --protocol SMTP -t "example@nonexistant.cu"  -f $TESTUSER > $LOGP
+    $SOFT -s $SERVER --protocol SMTP -t "example@nonexistant.cu" -f $TESTUSER > $LOGP
     R=$?
     if [ $R -ne 24 ] ; then
         # error
@@ -586,7 +573,6 @@ function smtpFromExistenLocalRecipientNoAuth {
     # sum the logs
     cat $LOGP >> $LOG
 }
-
 
 # Send a mail to a local recipient via submission
 function submissionToNonExistenLocalRecipient {
@@ -624,8 +610,7 @@ function smtpOpenRelay {
     echo "" >> $LOG
     echo "===> Testing if you are an open relay" >> $LOG
 
-    USER1=`mktemp | cut -d '/' -f 3`
-    $SOFT -s $SERVER --protocol SMTP -t "$USER@example.com" -f "$USER1@example.org" > $LOGP
+    $SOFT -s $SERVER --protocol SMTP -t "$USER@example.com" -f "$USER@example.org" > $LOGP
     R=$?
     if [ $R -ne 24 ] ; then
         # error
@@ -875,7 +860,7 @@ function submissionAuthNAtionalToExternalNational {
     cat $LOGP >> $LOG
 }
 
-# Send and submission email from a local user 
+# Send and submission email from a local user
 function submissionAuthLocaltoInet {
     echo "" >> $LOG
     echo "===> Testing if you server honors local restrictions (send)" >> $LOG
