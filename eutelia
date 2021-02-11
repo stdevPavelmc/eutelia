@@ -74,13 +74,10 @@ function main {
         # from non existen local sender (deny or ask password)
         smtpFromNonExistenLocalRecipient
 
-        # Local valid user send local with no auth SMTP (must fail, need auth but no possible under SMTP) with no encryption
-        smtpFromExistenLocalRecipientNoAuth
-
         # national users sending
         if [ "$NATIONAL" != "" ] ; then
             # national sending to inet
-            submissionAuthFromNationalToInet 
+            submissionAuthFromNationalToInet
 
             # national sending to national outside
             submissionAuthNAtionalToExternalNational
@@ -89,7 +86,7 @@ function main {
         # local users sending
         if [ "$LOCAL" != "" ] ; then
             # local sending to inet
-            submissionAuthLocaltoInet 
+            submissionAuthLocaltoInet
 
             # local to local
             submissionAuthLocalToLocal
@@ -129,10 +126,10 @@ function main {
 
     # optional test no matter what mode
 
-    # attachements 
+    # attachements
     if [ "$ATTACH" != "" ] ; then
         # test attachments limits smtps
-        smtpAttachLimits 
+        smtpAttachLimits
 
         # test attachments limits submission
         submissionAttachLimits
@@ -184,9 +181,9 @@ function parseOptions {
                 exit 1
             fi
             ;;
-        --imap)
+        -a|--attachment)
             if [ -n "$2" ] && [ ${2:0:1} != "-" ]; then
-                IMAP=$2
+                MESSAGESIZE=$2
                 shift 2
             else
                 showHeader
@@ -218,17 +215,12 @@ function parseOptions {
     else
         # show server to test
         m='Internal'
-        if [ "$MODE" == "EXTERNAL" ] ; then 
+        if [ "$MODE" == "EXTERNAL" ] ; then
             m='External'
         fi
         showHeader
         echo "Testing server: $SERVER in mode: $m"
         echo ""
-    fi
-
-    # IMAP server
-    if [ "$IMAP" == "" ]; then
-        IMAP=$SERVER
     fi
 }
 
@@ -247,64 +239,8 @@ function usage {
     echo "      -l, --local             Run local users test"
     echo "      -n, --national          Run national user test"
     echo "      -a, --attachment [size] Run attachments size restrictions, size in MB"
-    echo "      --imap [IP]             IP of the imap server to check for relayed emails"
-    echo "                              just neede if the IP of the IAMP server is different"
-    echo "                              from the -s|--server one."
     echo ""
     echo "Enjoy."
-}
-
-# function to generate a hash to identify an email
-function fingerprint {
-    R=`date | sha256sum | awk '{print $1}'`
-    echo "$R"
-}
-
-# function to check for an email with a particular fingerprint
-function check_email {
-    # 3 arguments:
-    # 1 - Fingerprint (subject)
-    # 2 - User
-    # 3 - Pass
-
-    # delay of 10 seconds to allow delivery
-    sleep 10
-
-    # catch vars (cut the fingerprint up to 45 digits, good enough)
-    # because some times the subject line got a ' at position 48
-    # weird...
-    F=`echo $1 | cut -c1-45`
-    U=$2
-    P=$3
-
-    # get the count of emails
-    ID=`curl --insecure --silent --url "imaps://${IMAP}/" \
-        --user "${2}:${3}" --request "EXAMINE Inbox" \
-        | grep "EXISTS" | awk '{print $2}'`
-
-    # cycle from last to back in the last 10 emails to find the fingerprint
-    if [ $ID -le 10 ] ; then
-        # less than 10 emails
-        UNTIL=10
-    else
-        # more than 10 emails, get the last 10
-        UNTIL=`expr $ID - 10`
-    fi
-
-    while [ $ID -ge $UNTIL ] ; do
-        R=`curl --insecure --silent \
-            --url "imaps://${IMAP}/Inbox;UID=${ID};SECTION=HEADER.FIELDS%20(SUBJECT)" \
-            --user "${2}:${3}"`
-        ID=`expr $ID - 1`
-
-        # test
-        R=`echo $R | awk '{print $2}' | cut -c1-45`
-        if [ "$R" == "$F" ] ; then
-            # bingo
-            echo "OK"
-            break
-        fi
-    done
 }
 
 # test for swaks
@@ -400,13 +336,12 @@ function smtpsConnectionOk {
 }
 
 # check submisison conectivity via valid email with auth
-function submissionConnectionOk { 
+function submissionConnectionOk {
     echo "" >> $LOG
     echo "===> Testing Submission with auth to valid user" >> $LOG
 
-    F=`fingerprint`
     $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$TESTUSER" -ap "$PASS" \
-        -t "$TESTUSER" -f "$TESTUSER" --header "Subject: $F" > $LOGP
+        -t "$TESTUSER" -f "$TESTUSER" > $LOGP
     R=$?
     if [ $R -eq 2 ] ; then
         # error
@@ -439,8 +374,7 @@ function smtpValidRecipient {
     echo "" >> $LOG
     echo "===> Testing if the server allows SMTP mails to real recipients" >> $LOG
 
-    F=`fingerprint`
-    $SOFT -s $SERVER --protocol SMTP -t $TESTUSER --header "Subject: $F" > $LOGP
+    $SOFT -s $SERVER --protocol SMTP -t $TESTUSER > $LOGP
     R=$?
     if [ $R -ne 0 ] ; then
         # error
@@ -458,15 +392,8 @@ function smtpValidRecipient {
         echo "Logs follow" >> $LOG
         echo "======================================================" >> $LOG
     else
-        # ok checking for a mail with that fingerprint
-        R=`check_email "$F" "$TESTUSER" "$PASS"`
-        if [ "$R" == "OK" ] ; then
-            # all ok, received
-            echo "===> Ok: You can receive emails for your domain" | tee -a $LOG
-        else
-            # sent but not received yet
-            echo "===> Ok: You can receive emails for your domain [No Confirmation Yet]" | tee -a $LOG
-        fi
+        # you can receive
+        echo "===> Ok: You can receive emails for your domain" | tee -a $LOG
     fi
     # sum the logs
     cat $LOGP > $LOG
@@ -477,7 +404,6 @@ function smtpImpersonatingServerSPF {
     echo "" >> $LOG
     echo "===> Testing if the server honors SPF, impersonating a Gmail server" >> $LOG
 
-    F=`fingerprint`
     $SOFT -s $SERVER --protocol SMTP -t $TESTUSER -f "resoples@gmail.com" > $LOGP
     R=$?
     if [ $R -eq 0 ] ; then
@@ -496,7 +422,7 @@ function smtpImpersonatingServerSPF {
         echo "Logs follow" >> $LOG
         echo "======================================================" >> $LOG
     else
-        # ok checking for a mail with that fingerprint
+        # ok SPF is working
         echo "===> Ok: Your server has a working SPF protection in place" | tee -a $LOG
     fi
     # sum the logs
@@ -504,13 +430,12 @@ function smtpImpersonatingServerSPF {
 }
 
 # Send a Mail via submission to a valid user from a valid user using auth
-function submissionAsAdminToMySelf { 
+function submissionAsAdminToMySelf {
     echo "" >> $LOG
     echo "===> Testing auth mails to myself" >> $LOG
 
-    F=`fingerprint`
     $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$TESTUSER" -ap "$PASS" \
-        -t "$TESTUSER" -f "$TESTUSER" --header "Subject: $F" > $LOGP
+        -t "$TESTUSER" -f "$TESTUSER" > $LOGP
     R=$?
     if [ $R -ne 0 ] ; then
         # error
@@ -529,15 +454,8 @@ function submissionAsAdminToMySelf {
         echo "Logs follow" >> $LOG
         echo "=========================================================" >> $LOG
     else
-        # ok checking for a mail with that fingerprint
-        R=`check_email "$F" "$TESTUSER" "$PASS"`
-        if [ "$R" == "OK" ] ; then
-            # all ok, received
-            echo "===> Ok: Authenticated users can send local emails" | tee -a $LOG
-        else
-            # sent but not received yet
-            echo "===> Ok: Authenticated users can send local emails [No Confirmation Yet]" | tee -a $LOG
-        fi
+        # can send
+        echo "===> Ok: Authenticated users can send local emails" | tee -a $LOG
     fi
     # sum the logs
     cat $LOGP >> $LOG
@@ -839,7 +757,7 @@ function submissionAttachLimits {
     TMP=`mktemp`
     dd if=/dev/zero of=$TMP bs=1 count="$MS" 2>/dev/null
     $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$TESTUSER" -ap "$PASS" \
-        -t "$TESTUSER" -f "$TESTUSER" --header "Subject: $F" --attach "$TMP" > $LOGP
+        -t "$TESTUSER" -f "$TESTUSER" --attach "$TMP" > $LOGP
     rm $TMP
     R=$?
     if [ $R -ne 0 ] ; then
@@ -931,9 +849,8 @@ function submissionAuthNAtionalToExternalNational {
     echo "" >> $LOG
     echo "===> Testing if you server honors national restrictions (send national)" >> $LOG
 
-    F=`fingerprint`
     $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$NACUSER" -ap "$NACUSERPASSWD" \
-        -t "reject@nonexistent.cu" -f "$NACUSER" --header "Subject: $F" > $LOGP
+        -t "reject@nonexistent.cu" -f "$NACUSER" > $LOGP
     R=$?
     if [ $R -ne 0 ] ; then
         # error
@@ -993,9 +910,8 @@ function submissionAuthLocalToLocal {
     echo "" >> $LOG
     echo "===> Testing if you server honors local restrictions (receive)" >> $LOG
 
-    F=`fingerprint`
     $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$LOCUSER" -ap "$LOCUSERPASSWORD" \
-        -t "$NACUSER" -f "$LOCUSER" --header "Subject: $F" > $LOGP
+        -t "$NACUSER" -f "$LOCUSER" > $LOGP
     R=$?
     if [ $R -ne 0 ] ; then
         # error
