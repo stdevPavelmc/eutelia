@@ -1,0 +1,1024 @@
+#!/bin/bash
+
+# Eutelia, Mail server testiong script, get the latest version from
+# https://github.com/stdevPavelmc/mailad/
+#
+# Copyright 2020 Pavel Milanes Costa <pavelmc@gmail.com>
+# LICENCE: GPL 3.0 and later  
+#
+
+## Vars
+LOG=./eutelia.log
+LOGP=./.eutelia.log
+cat /dev/null > $LOG
+
+# Reset the locales
+LANGUAGE="en_US"
+LC_ALL=C
+LANG="en_US.UTF-8"
+export LANGUAGE
+export LC_ALL
+export LANG
+
+# options
+MODE='INTERNAL'
+LOCAL=''
+NATIONAL=''
+IMAP=''
+SERVER=''
+ATTACH=''
+
+
+# Main function
+function main {
+    # dependencies
+    isswaks
+
+    # config
+    isconfig
+
+    # parse options
+    parseOptions "$@"
+
+    # create a fake users email
+    USER=`mktemp | cut -d '/' -f 3`
+
+    # Action
+    if [ "$MODE" == "INTERNAL" ] ; then
+        # internal mode, default tests.
+
+        # Server must not be available via SMTPS
+        smtpConnectionFail
+
+        # Server can be reached via SMTPS
+        smtpsConnectionOk
+
+        # Server must be reached via SUBMISSION
+        submissionConnectionOk
+
+        # Send an email to the mail admin with auth as sender
+        submissionAsAdminToMySelf
+
+        # Send an email to the outside as a valid user with auth
+        submissionAsAdminToInet
+
+        # Send an email via submission auth to a non existen domain email
+        submissionToNonExistenLocalRecipient
+
+        # Test submission auth with ID spoffing
+        submissionLocalAuthNotSender
+
+        # Open relay from inside?
+        smtpOpenRelay
+
+        # from non existen local sender (deny or ask password)
+        smtpFromNonExistenLocalRecipient
+
+        # Local valid user send local with no auth SMTP (must fail, need auth but no possible under SMTP) with no encryption
+        smtpFromExistenLocalRecipientNoAuth
+
+        # national users sending
+        if [ "$NATIONAL" != "" ] ; then
+            # national sending to inet
+            submissionAuthFromNationalToInet 
+
+            # national sending to national outside
+            submissionAuthNAtionalToExternalNational
+        fi
+
+        # local users sending
+        if [ "$LOCAL" != "" ] ; then
+            # local sending to inet
+            submissionAuthLocaltoInet 
+
+            # local to local
+            submissionAuthLocalToLocal
+        fi
+    else
+        # external mode
+
+        # Simple email to valid recipient via SMTP
+        smtpValidRecipient
+
+        # reject nonexisten users (user unknow in virtual mailbox table)
+        smtpToNonExistenLocalRecipient
+
+        # from non existen local sender (deny or ask password)
+        smtpFromNonExistenLocalRecipient
+
+        # Open relay
+        smtpOpenRelay
+
+        # Send an email to the outside as a valid user with auth
+        submissionAsAdminToInet
+
+        # Send an email via submission auth to a non existen domain email
+        submissionToNonExistenLocalRecipient
+
+        # Test submission auth with ID spoffing
+        submissionLocalAuthNotSender
+
+        # Testing SPF
+        smtpImpersonatingServerSPF
+
+        # Local valid user send local with no auth SMTP (must fail, need auth but no possible under SMTP) with no encryption
+        smtpFromExistenLocalRecipientNoAuth
+
+
+    fi
+
+    # optional test no matter what mode
+
+    # attachements 
+    if [ "$ATTACH" != "" ] ; then
+        # test attachments limits smtps
+        smtpAttachLimits 
+
+        # test attachments limits submission
+        submissionAttachLimits
+    fi
+
+    exit 0
+}
+
+
+# header
+function showHeader {
+    # Notice header
+    echo "Eutelia: Script for security tests on mail servers by @stdevPavelmc"
+    echo "https://github.com/stdevPavelmc/eutelia"
+    echo ""
+}
+
+# options parse
+function parseOptions {
+    while (( "$#" )); do
+        case "$1" in
+        -i|--internal)
+            MODE='INTERNAL'
+            shift
+            ;;
+        -e|--external)
+            MODE='EXTERNAL'
+            shift
+            ;;
+        -l|--localuser)
+            LOCAL='1'
+            shift
+            ;;
+        -n|--national)
+            NATIONAL='1'
+            shift
+            ;;
+        -a|--attachment)
+            ATTACH='1'
+            shift
+            ;;
+        -s|--server)
+            if [ -n "$2" ] && [ ${2:0:1} != "-" ]; then
+                SERVER=$2
+                shift 2
+            else
+                showHeader
+                echo "Error: Argument for $1 is missing" >&2
+                exit 1
+            fi
+            ;;
+        --imap)
+            if [ -n "$2" ] && [ ${2:0:1} != "-" ]; then
+                IMAP=$2
+                shift 2
+            else
+                showHeader
+                echo "Error: Argument for $1 is missing" >&2
+                exit 1
+            fi
+            ;;
+        -*|--*=) # unsupported flags
+            showHeader
+            echo "Error: Unsupported flag $1" >&2
+            exit 1
+            ;;
+        *) # preserve positional arguments
+            PARAMS="$PARAMS $1"
+            shift
+            ;;
+        esac
+    done
+
+    # set positional arguments in their proper place
+    eval set -- "$PARAMS"
+
+    # at least SERVER must be set
+    if [ "$SERVER" == "" ] ; then
+        # no server parameter
+        showHeader
+        usage
+        exit 1
+    else
+        # show server to test
+        m='Internal'
+        if [ "$MODE" == "EXTERNAL" ] ; then 
+            m='External'
+        fi
+        showHeader
+        echo "Testing server: $SERVER in mode: $m"
+        echo ""
+    fi
+
+    # IMAP server
+    if [ "$IMAP" == "" ]; then
+        IMAP=$SERVER
+    fi
+}
+
+# usage function
+function usage {
+    echo "Usage: $0 [mode] [options]"
+    echo ""
+    echo "  [mode] is one of this two:"
+    echo "      -i, --internal          [Default] Internal mode, you are a valid client"
+    echo "                              of the domain"
+    echo "      -e, --external          External mode, you are a enternal server"
+    echo "                              delivering emails to the domian [or an attacker]"
+    echo ""
+    echo "  [options] some of this:"
+    echo "      -s, --server [IP]       [Required] the IP or Hostname of the server to test"
+    echo "      -l, --local             Run local users test"
+    echo "      -n, --national          Run national user test"
+    echo "      -a, --attachment [size] Run attachments size restrictions, size in MB"
+    echo "      --imap [IP]             IP of the imap server to check for relayed emails"
+    echo "                              just neede if the IP of the IAMP server is different"
+    echo "                              from the -s|--server one."
+    echo ""
+    echo "Enjoy."
+}
+
+# function to generate a hash to identify an email
+function fingerprint {
+    R=`date | sha256sum | awk '{print $1}'`
+    echo "$R"
+}
+
+# function to check for an email with a particular fingerprint
+function check_email {
+    # 3 arguments:
+    # 1 - Fingerprint (subject)
+    # 2 - User
+    # 3 - Pass
+
+    # delay of 10 seconds to allow delivery
+    sleep 10
+
+    # catch vars (cut the fingerprint up to 45 digits, good enough)
+    # because some times the subject line got a ' at position 48
+    # weird...
+    F=`echo $1 | cut -c1-45`
+    U=$2
+    P=$3
+
+    # get the count of emails
+    ID=`curl --insecure --silent --url "imaps://${IMAP}/" \
+        --user "${2}:${3}" --request "EXAMINE Inbox" \
+        | grep "EXISTS" | awk '{print $2}'`
+
+    # cycle from last to back in the last 10 emails to find the fingerprint
+    if [ $ID -le 10 ] ; then
+        # less than 10 emails
+        UNTIL=10
+    else
+        # more than 10 emails, get the last 10
+        UNTIL=`expr $ID - 10`
+    fi
+
+    while [ $ID -ge $UNTIL ] ; do
+        R=`curl --insecure --silent \
+            --url "imaps://${IMAP}/Inbox;UID=${ID};SECTION=HEADER.FIELDS%20(SUBJECT)" \
+            --user "${2}:${3}"`
+        ID=`expr $ID - 1`
+
+        # test
+        R=`echo $R | awk '{print $2}' | cut -c1-45`
+        if [ "$R" == "$F" ] ; then
+            # bingo
+            echo "OK"
+            break
+        fi
+    done
+}
+
+# test for swaks
+function isswaks {
+    SOFT=`which swaks`
+    if [ "$SOFT" == "" ] ; then
+        showHeader
+        echo "Error: main tool not found: swaks"
+        echo ""
+        echo " A 'sudo apt install swaks' may help you out..."
+        exit 1
+    fi
+}
+
+# is config present?
+function isconfig {
+    if [ -r ./eutelia.conf ] ; then
+        # source the config
+        source ./eutelia.conf
+    else
+        showHeader
+        echo "Error: No local config found"
+        echo ""
+        echo " A 'git reset --hard && git pull' may help you out..."
+        echo "======================================================"
+        exit 1
+    fi
+}
+
+##### Mail testing functions
+
+
+### connectivity
+
+# check smtp connectivity fail
+function smtpConnectionFail {
+    echo "" >> $LOG
+    echo "===> Testing if the server is reacheable via plain SMTP connections" >> $LOG
+
+    $SOFT -s $SERVER --protocol SMTP -t "$TESTUSER" 2> /dev/null >> $LOGP
+    R=$?
+    if [ $R -ne 2 ] ; then
+        # error
+        echo "===> Error: Your server allows plain SMTP connections, see logs"
+
+        echo "" >> $LOG
+        echo "==========================================================" >> $LOG
+        echo "ERROR: Server is reacheable via plain SMTP connections!" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: Users must interact wirh the server only via " >> $LOG
+        echo "  secure protocols, use SUBMISSION (587) only please " >> $LOG
+        echo "  block the access to SMTP (25)" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "==========================================================" >> $LOG
+    else
+        # ok
+        echo "===> Ok: Your server does not allows plain SMTP connections" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# check ssmtp connectivity ok
+function smtpsConnectionOk {
+    echo "" >> $LOG
+    echo "===> Testing if the server has SSMTP connectivity" >> $LOG
+
+    $SOFT -s "$SERVER" --protocol SSMTP -t $TESTUSER > $LOGP
+    R=$?
+    if [ $R -eq 2 ] ; then
+        # error
+        echo "===> Error: The server can be reached via SMTPS (465) "
+
+        echo "=======================================================" >> $LOG
+        echo "ERROR: Can send a mail to a valid local email via SSMTP" >> $LOG
+        echo "       with no authentication" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server bounce emails" >> $LOG
+        echo "         via secure channel with no authentication," >> $LOG
+        echo "         please check your configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "======================================================" >> $LOG
+    else
+        # ok
+        echo "===> Ok: The server is reacheable via SMTPS (465)" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# check submisison conectivity via valid email with auth
+function submissionConnectionOk { 
+    echo "" >> $LOG
+    echo "===> Testing Submission with auth to valid user" >> $LOG
+
+    F=`fingerprint`
+    $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$TESTUSER" -ap "$PASS" \
+        -t "$TESTUSER" -f "$TESTUSER" --header "Subject: $F" > $LOGP
+    R=$?
+    if [ $R -eq 2 ] ; then
+        # error
+        echo "===> Error: Cant access the server via SUBMISSION (587)"
+
+        echo "=========================================================" >> $LOG
+        echo "ERROR: The server can't be reached via SUBMISSION (587)" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server can receive" >> $LOG
+        echo "         emails for it's domain via SUBMISSION from an" >> $LOG
+        echo "         authenticated user, please check your" >> $LOG
+        echo "         configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "=========================================================" >> $LOG
+    else
+        # server is reacheable via SUBMISSION
+        echo "===> Ok: Server is reacheable via SUBMISSION (587)" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+
+### sending emails
+
+# Simple email to valid recipient
+function smtpValidRecipient {
+    echo "" >> $LOG
+    echo "===> Testing if the server allows SMTP mails to real recipients" >> $LOG
+
+    F=`fingerprint`
+    $SOFT -s $SERVER --protocol SMTP -t $TESTUSER --header "Subject: $F" > $LOGP
+    R=$?
+    if [ $R -ne 0 ] ; then
+        # error
+        echo "===> Error: You can receive emails for your domain?"
+
+        echo "======================================================" >> $LOG
+        echo "ERROR: Can't send a mail to a valid local email using" >> $LOG
+        echo "       simple SMTP (25)" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server can receive" >> $LOG
+        echo "         emails for it's domain, please check your" >> $LOG
+        echo "         configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "======================================================" >> $LOG
+    else
+        # ok checking for a mail with that fingerprint
+        R=`check_email "$F" "$TESTUSER" "$PASS"`
+        if [ "$R" == "OK" ] ; then
+            # all ok, received
+            echo "===> Ok: You can receive emails for your domain" | tee -a $LOG
+        else
+            # sent but not received yet
+            echo "===> Ok: You can receive emails for your domain [No Confirmation Yet]" | tee -a $LOG
+        fi
+    fi
+    # sum the logs
+    cat $LOGP > $LOG
+}
+
+# Gmail impersonating, to trigger SPF
+function smtpImpersonatingServerSPF {
+    echo "" >> $LOG
+    echo "===> Testing if the server honors SPF, impersonating a Gmail server" >> $LOG
+
+    F=`fingerprint`
+    $SOFT -s $SERVER --protocol SMTP -t $TESTUSER -f "resoples@gmail.com" > $LOGP
+    R=$?
+    if [ $R -eq 0 ] ; then
+        # error
+        echo "===> Error: You servers has a no working SPF protection"
+
+        echo "======================================================" >> $LOG
+        echo "ERROR: We just sent an email from a local address as " >> $LOG
+        echo "       if we where a gmail server, SPF is not working." >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: If you have a well configured SPF policy then" >> $LOG
+        echo "         emails for servers that are not autenthic" >> $LOG
+        echo "         servers for a domain must not be relayed." >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "======================================================" >> $LOG
+    else
+        # ok checking for a mail with that fingerprint
+        echo "===> Ok: Your server has a working SPF protection in place" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP > $LOG
+}
+
+# Send a Mail via submission to a valid user from a valid user using auth
+function submissionAsAdminToMySelf { 
+    echo "" >> $LOG
+    echo "===> Testing auth mails to myself" >> $LOG
+
+    F=`fingerprint`
+    $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$TESTUSER" -ap "$PASS" \
+        -t "$TESTUSER" -f "$TESTUSER" --header "Subject: $F" > $LOGP
+    R=$?
+    if [ $R -ne 0 ] ; then
+        # error
+        echo "===> Error: Authenticated users can not send local emails"
+
+        echo "=========================================================" >> $LOG
+        echo "ERROR: Can't relay a mail to a valid local recipient with" >> $LOG
+        echo "       authentication (as sender) over SUBMISSION (587)" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server can receive" >> $LOG
+        echo "         emails for it's domain via SUBMISSION from an" >> $LOG
+        echo "         authenticated user, please check your" >> $LOG
+        echo "         configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "=========================================================" >> $LOG
+    else
+        # ok checking for a mail with that fingerprint
+        R=`check_email "$F" "$TESTUSER" "$PASS"`
+        if [ "$R" == "OK" ] ; then
+            # all ok, received
+            echo "===> Ok: Authenticated users can send local emails" | tee -a $LOG
+        else
+            # sent but not received yet
+            echo "===> Ok: Authenticated users can send local emails [No Confirmation Yet]" | tee -a $LOG
+        fi
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# Send a mail from a valid user to the outside world
+function submissionAsAdminToInet {
+    echo "" >> $LOG
+    echo "===> Testing if auth users can send emails to the outside world" >> $LOG
+
+    $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$TESTUSER" -ap "$PASS" \
+        -t "fake@example.com" -f "$TESTUSER"  > $LOGP
+    R=$?
+    if [ $R -ne 0 ] ; then
+        # error
+        echo "===> Error: Authenticated users can not send emails to the outside world"
+
+        echo "==========================================================" >> $LOG
+        echo "ERROR: Can't send a mail to an outside recipient using" >> $LOG
+        echo "       authentication (as sender) from a local user over" >> $LOG
+        echo "       SUBMISSION (587)" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server can send an email" >> $LOG
+        echo "         to the outside world via SUBMISSION from an" >> $LOG
+        echo "         authenticated local user, please check your" >> $LOG
+        echo "         configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "==========================================================" >> $LOG
+        cat $LOGP
+        exit 1
+    else
+        # ok
+        echo "===> Ok: Authenticated users can send emails to the outside world" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# Send a mail to a local recipient via smtp
+function smtpToNonExistenLocalRecipient {
+    echo "" >> $LOG
+    echo "===> Testing if the server accepts emails for unknown recipients" >> $LOG
+
+    USER=`mktemp | cut -d '/' -f 3`
+    $SOFT -s $SERVER --protocol SMTP -t "$USER@$DOMAIN" > $LOGP
+    R=$?
+    if [ $R -ne 24 ] ; then
+        # error
+        echo "===> Error: Your server does not reject unknown recipients, see logs"
+
+        echo "==========================================================" >> $LOG
+        echo "ERROR: Can send a mail to a non-valid local email via SMTP" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server bounce mails for" >> $LOG
+        echo "         unknown recipients of your domain, please check" >> $LOG
+        echo "         your configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "=========================================================="  >> $LOG
+    else
+        # ok
+        echo "===> Ok: Your server reject unknown recipients" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# Send a mail to a local recipient via smtp from a non existen local sender
+function smtpFromNonExistenLocalRecipient {
+    echo "" >> $LOG
+    echo "===> Testing if the server accepts emails from unknown senders in his domain" >> $LOG
+
+    USER=`mktemp | cut -d '/' -f 3`
+    $SOFT -s $SERVER --protocol SMTP -t $TESTUSER -f "$USER@$DOMAIN" > $LOGP
+    R=$?
+    if [ $R -ne 24 ] ; then
+        # error
+        echo "===> Error: Your server does not reject unknown senders (SMTP), see logs"
+
+        echo "==========================================================" >> $LOG
+        echo "ERROR: Can send a mail to your domain from a non existen" >> $LOG
+        echo "         sender in your domain." >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server does not allow" >> $LOG
+        echo "         unknown users in your domain to sent emails" >> $LOG
+        echo "         prease review your configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "=========================================================="  >> $LOG
+    else
+        # ok
+        echo "===> Ok: Your server reject unknown senders in your domain" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# Send a mail to a local recipient from a valid local sender with no auth
+function smtpFromExistenLocalRecipientNoAuth {
+    echo "" >> $LOG
+    echo "===> Testing if the server accepts emails from local users without auth (SMTP)" >> $LOG
+
+    USER=`mktemp | cut -d '/' -f 3`
+    $SOFT -s $SERVER --protocol SMTP -t "example@nonexistant.cu"  -f $TESTUSER > $LOGP
+    R=$?
+    if [ $R -ne 24 ] ; then
+        # error
+        echo "===> Error: Your server does not reject unknown senders (SMTP), see logs"
+
+        echo "==========================================================" >> $LOG
+        echo "ERROR: Can send a mail from a local address with no auth" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server does not allow" >> $LOG
+        echo "         known users in your domain to sent emails" >> $LOG
+        echo "         if not authenticated" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "=========================================================="  >> $LOG
+    else
+        # ok
+        echo "===> Ok: Your server refuse to relay valid sender emails with no auth" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+
+# Send a mail to a local recipient via submission
+function submissionToNonExistenLocalRecipient {
+    echo "" >> $LOG
+    echo "===> Testing if the server accepts emails for unknown recipients" >> $LOG
+
+    USER=`mktemp | cut -d '/' -f 3`
+    $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$TESTUSER" -ap "$PASS" \
+        -t "$USER@$DOMAIN" -f "$TESTUSER"  > $LOGP
+    R=$?
+    if [ $R -ne 24 ] ; then
+        # error
+        echo "===> Error: Your server does not reject unknown recipients, see logs"
+
+        echo "==========================================================" >> $LOG
+        echo "ERROR: Can send a mail to a non-valid local email via SMTP" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server bounce mails for" >> $LOG
+        echo "         unknown recipients of your domain, please check" >> $LOG
+        echo "         your configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "=========================================================="  >> $LOG
+    else
+        # ok
+        echo "===> Ok: Your server reject unknown recipients (Submission)" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# Test OpenRleay
+function smtpOpenRelay {
+    echo "" >> $LOG
+    echo "===> Testing if you are an open relay" >> $LOG
+
+    USER1=`mktemp | cut -d '/' -f 3`
+    $SOFT -s $SERVER --protocol SMTP -t "$USER@example.com" -f "$USER1@example.org" > $LOGP
+    R=$?
+    if [ $R -ne 24 ] ; then
+        # error
+        echo "===> Error: Your server is an open relay"
+
+        echo "========================================================" >> $LOG
+        echo "ERROR: Can relay a mail not for your domain and comming" >> $LOG
+        echo "       from a external domain" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server does not relay" >> $LOG
+        echo "         mails for other domains than the configured one" >> $LOG
+        echo "         so you are an OPEN REALY server, and that is" >> $LOG
+        echo "         bad, VERY BAD, please check your configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "========================================================" >> $LOG
+    else
+        # ok
+        echo "===> Ok: Your server is not an open relay" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# Send and email to the admin via smtps
+function smtpsToValidLocalRecipient {
+    echo "" >> $LOG
+    echo "===> Testing if you can send a SSMTP email to a valid recipient no auth" >> $LOG
+
+    $SOFT -s "$SERVER" --protocol SSMTP -t $TESTUSER > $LOGP
+    R=$?
+    if [ $R -ne 24 ] ; then
+        # error
+        echo "===> Error: The server relaying mail though unauthenticated SMTPS"
+
+        echo "=======================================================" >> $LOG
+        echo "ERROR: Can send a mail to a valid local email via SSMTP" >> $LOG
+        echo "       with no authentication" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server bounce emails" >> $LOG
+        echo "         via secure channel with no authentication," >> $LOG
+        echo "         please check your configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "======================================================" >> $LOG
+    else
+        # ok
+        echo "===> Ok: The server rejects relaying mail though unauthenticated SMTPS" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# try to spoof the address with auth as une user and from another
+function submissionLocalAuthNotSender {
+    echo "" >> $LOG
+    echo "===> Testing if you can send a SSMTP email to a valid recipient no auth" >> $LOG
+
+    $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$TESTUSER" -ap "$PASS" \
+        -t "$TESTUSER" -f "$USER" > $LOGP
+    R=$?
+    if [ $R -ne 24 ] ; then
+        # error
+        echo "===> Error: The server does allow id spoofing"
+
+        echo "=========================================================" >> $LOG
+        echo "ERROR: Can send a mail to a valid local email using" >> $LOG
+        echo "       SUBMISSION and a valid authentication that does" >> $LOG
+        echo "       not match the sender address" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server bounce emails" >> $LOG
+        echo "         from a sender that authenticated as another user" >> $LOG
+        echo "         this is a well known id spoofing technique," >> $LOG
+        echo "         please check your configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "=========================================================" >> $LOG
+    else
+        # ok
+        echo "===> Ok: The server does NOT allow id spoofing" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# Test attachment limits
+function smtpAttachLimits {
+    echo "" >> $LOG
+    echo "===> Testing if you server honors attachments size limts" >> $LOG
+
+    MS=`echo "$MESSAGESIZE*1024*1024*1.3" | bc -q | cut -d '.' -f 1`
+    TMP=`mktemp`
+    dd if=/dev/zero of=$TMP bs=1 count="$MS" 2>/dev/null
+    $SOFT -s $SERVER --protocol SMTP -t $TESTUSER --attach "$TMP" > $LOGP
+    rm $TMP
+    R=$?
+    if [ $R -ne 0 ] ; then
+        # error
+        echo "===> Error: Mail size restriction is not working (SMTP)"
+
+        echo "========================================================" >> $LOG
+        echo "ERROR: Can send a mail to a valid local email via SMTP" >> $LOG
+        echo "       with an attachement bigger than the stated value" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server bounce emails" >> $LOG
+        echo "         that are bigger that the maximium stated, size" >> $LOG
+        echo "         please check your configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "========================================================" >> $LOG
+    else
+        # ok
+        echo "===> Ok: Mail size restriction is working (SMTP)" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# Test attachment limits
+function submissionAttachLimits {
+    echo "" >> $LOG
+    echo "===> Testing if you server honors attachments size limts (submission)" >> $LOG
+
+    MS=`echo "$MESSAGESIZE*1024*1024*1.3" | bc -q | cut -d '.' -f 1`
+    TMP=`mktemp`
+    dd if=/dev/zero of=$TMP bs=1 count="$MS" 2>/dev/null
+    $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$TESTUSER" -ap "$PASS" \
+        -t "$TESTUSER" -f "$TESTUSER" --header "Subject: $F" --attach "$TMP" > $LOGP
+    rm $TMP
+    R=$?
+    if [ $R -ne 0 ] ; then
+        # error
+        echo "===> Error: Mail size restriction is not working (SUBMISSION)"
+
+        echo "========================================================" >> $LOG
+        echo "ERROR: Can send a mail to a valid local email via SMTP" >> $LOG
+        echo "       with an attachement bigger than the stated value" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server bounce emails" >> $LOG
+        echo "         that are bigger that the maximium stated, size" >> $LOG
+        echo "         please check your configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "========================================================" >> $LOG
+    else
+        # ok
+        echo "===> Ok: Mail size restriction is working (SUBMISSION)" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# send a smtp email from internet to a only national account
+function smtpFromInetToNationalRestrictedRecipient {
+    echo "" >> $LOG
+    echo "===> Testing if you server honors national restrictions (receive)" >> $LOG
+
+    $SOFT -s $SERVER --protocol SMTP -t $NACUSER -f "testing@example.com" > $LOGP
+    R=$?
+    if [ $R -ne 24 ] ; then
+        # error
+        echo "===> Error: National restricted users can receive emails from outside"
+
+        echo "======================================================" >> $LOG
+        echo "ERROR: Can send a mail to a defined national account" >> $LOG
+        echo "       from an international address: using SMTP (25)" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server block this" >> $LOG
+        echo "         emails, as a policy, please check your" >> $LOG
+        echo "         configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "======================================================" >> $LOG
+    else
+        # ok
+        echo "===> Ok: National restricted users can't receive emails from outside" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# send a submission email with auth from a national user to inet
+function submissionAuthFromNationalToInet {
+    echo "" >> $LOG
+    echo "===> Testing if you server honors national restrictions (send)" >> $LOG
+
+    $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$NACUSER" -ap "$NACUSERPASSWD" \
+    -t "fake@example.com" -f "$NACUSER" > $LOGP
+    R=$?
+    if [ $R -ne 24 ] ; then
+        # error
+        echo "===> Error: National restricted users can send emails to internet"
+
+        echo "==========================================================" >> $LOG
+        echo "ERROR: Can send a mail to an internet recipient from a" >> $LOG
+        echo "       national limited account, using SUBMISSION (587)" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server block this as" >> $LOG
+        echo "         the users is limited to national access only," >> $LOG
+        echo "         please check your configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "==========================================================" >> $LOG
+    else
+        # ok
+        echo "===> Ok: National restricted users can't send emails to internet" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# send a submissionauth email from nac sender to outside nac domian
+function submissionAuthNAtionalToExternalNational {
+    echo "" >> $LOG
+    echo "===> Testing if you server honors national restrictions (send national)" >> $LOG
+
+    F=`fingerprint`
+    $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$NACUSER" -ap "$NACUSERPASSWD" \
+        -t "reject@nonexistent.cu" -f "$NACUSER" --header "Subject: $F" > $LOGP
+    R=$?
+    if [ $R -ne 0 ] ; then
+        # error
+        echo "===> Error: National restricted users can't send emails to national address"
+
+        echo "==========================================================" >> $LOG
+        echo "ERROR: Can't send a mail to a national recipient from a" >> $LOG
+        echo "       national limited account, using SUBMISSION (587)" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's not the expected, your server must allow the" >> $LOG
+        echo "         user to send the mail, please check your" >> $LOG
+        echo "         configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "==========================================================" >> $LOG
+    else
+        # ok
+        echo "===> Ok: National restricted users can send emails to national address" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# Send and submission email from a local user 
+function submissionAuthLocaltoInet {
+    echo "" >> $LOG
+    echo "===> Testing if you server honors local restrictions (send)" >> $LOG
+
+    $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$LOCUSER" -ap "$LOCUSERPASSWORD" -t "fake@example.com" -f "$LOCUSER" > $LOGP
+    R=$?
+    if [ $R -ne 24 ] ; then
+        # error
+        echo "===> Error: Local restricted users can send emails to internet"
+
+        echo "==========================================================" >> $LOG
+        echo "ERROR: Can send a mail to an internet recipient from a" >> $LOG
+        echo "       local limited account, using SUBMISSION (587)" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's expected that your server block this as" >> $LOG
+        echo "         the users is limited to local access only," >> $LOG
+        echo "         please check your configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "==========================================================" >> $LOG
+    else
+        # ok
+        echo "===> Ok: Local restricted users can't send emails to internet" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# submission send local email to myself
+function submissionAuthLocalToLocal {
+    echo "" >> $LOG
+    echo "===> Testing if you server honors local restrictions (receive)" >> $LOG
+
+    F=`fingerprint`
+    $SOFT -s "$SERVER" -p 587 -tls -a PLAIN -au "$LOCUSER" -ap "$LOCUSERPASSWORD" \
+        -t "$NACUSER" -f "$LOCUSER" --header "Subject: $F" > $LOGP
+    R=$?
+    if [ $R -ne 0 ] ; then
+        # error
+        echo "===> Error: Local restricted users can't send emails to local recipients"
+
+        echo "==========================================================" >> $LOG
+        echo "ERROR: Can't send a mail to an local recipient from a" >> $LOG
+        echo "       local limited account, using SUBMISSION (587)" >> $LOG
+        echo " " >> $LOG
+        echo "COMMENT: It's not the expected, your server must allow the" >> $LOG
+        echo "         user to send the mail, please check your" >> $LOG
+        echo "         configuration" >> $LOG
+        echo " " >> $LOG
+        echo "Exit code: $R" >> $LOG
+        echo "Logs follow" >> $LOG
+        echo "==========================================================" >> $LOG
+    else
+        # ok
+        echo "===> Ok: Local restricted users can send emails to local recipients" | tee -a $LOG
+    fi
+    # sum the logs
+    cat $LOGP >> $LOG
+}
+
+# action ges here...
+main $@
