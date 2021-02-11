@@ -4,7 +4,7 @@
 # https://github.com/stdevPavelmc/mailad/
 #
 # Copyright 2020 Pavel Milanes Costa <pavelmc@gmail.com>
-# LICENCE: GPL 3.0 and later  
+# LICENCE: GPL 3.0 and later
 #
 
 ## Vars
@@ -28,6 +28,14 @@ IMAP=''
 SERVER=''
 ATTACH=''
 
+# points score
+POINTS=0
+MAXPOINTS=0
+
+# eutelia frases
+expressions_bad=("Pepito: no puedes inventar sin estudiar..." "A la OSRI no le gusta tu servidor..." "Quieres un vasito de leche fresca para que pases la pena..." "Mariasilvia esto está en llamas..." "Mi coronel esto está pobrecito, pobrecito..." "Suave Pomarosa que este camino está malo, malo..." "La OSRI se daría gusto contigo")
+expression_regular=("Ves Pomarosa, ya esto está mejor..." "Quieres un vasito de leche por tu buen esfuerzo..." "Ese fusíl si tira pa arriba de los panchos...")
+expression_good=("Ahora si podemos hacer una guerra decente..." "Esto está bueno mi coronel..." "Tan bueno como las cremitas de lecho que hago con la leche de Pomarosa..." "A la OSRI le gusta tu servidor...")
 
 # Main function
 function main {
@@ -124,6 +132,29 @@ function main {
         submissionAttachLimits
     fi
 
+    #calculate the score
+    SCCORE=$(( $POINTS * 100 / $MAXPOINTS ))
+    SCORETXT="$POINTS/$MAXPOINTS"
+
+    echo ""
+    echo "===> Your final score is:"
+    echo "     $SCORE % ($SCORETXT)"
+    echo ""
+
+    # random pick (eutelia phrase)
+    RANDOM=$$$(date +%s)
+    if [ $SCORE -lt 50 ] ; then
+        # bad expressions_bad
+        echo ${expressions_bad[$RANDOM % ${#expressions_bad[@]} ]}
+    fi
+    if [ $SCORE -gt 49 -a $SCORE -lt 90 ] ; then
+        # bad expression_regular
+        echo ${expression_regular[$RANDOM % ${#expression_regular[@]} ]}
+    fi
+    if [ $SCORE -gt 90 ] ; then
+        # bad expressions_good
+        echo ${expressions_good[$RANDOM % ${#expressions_good[@]} ]}
+    fi
     exit 0
 }
 
@@ -287,9 +318,15 @@ function smtpConnectionFail {
     else
         # ok
         echo "===> Ok: Your server does not allows plain SMTP connections" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # check ssmtp connectivity ok
@@ -317,9 +354,15 @@ function smtpsConnectionOk {
     else
         # ok
         echo "===> Ok: The server is reacheable via SMTPS (465)" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # check submisison conectivity via valid email with auth
@@ -348,9 +391,15 @@ function submissionConnectionOk {
     else
         # server is reacheable via SUBMISSION
         echo "===> Ok: Server is reacheable via SUBMISSION (587)" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 
@@ -381,9 +430,15 @@ function smtpValidRecipient {
     else
         # you can receive
         echo "===> Ok: You can receive emails for your domain" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP > $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # Gmail impersonating, to trigger SPF
@@ -411,9 +466,15 @@ function smtpImpersonatingServerSPF {
     else
         # ok SPF is working
         echo "===> Ok: Your server has a working SPF protection in place" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP > $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # Send a Mail via submission to a valid user from a valid user using auth
@@ -443,9 +504,15 @@ function submissionAsAdminToMySelf {
     else
         # can send
         echo "===> Ok: Authenticated users can send local emails" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # Send a mail from a valid user to the outside world
@@ -478,9 +545,15 @@ function submissionAsAdminToInet {
     else
         # ok
         echo "===> Ok: Authenticated users can send emails to the outside world" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # Send a mail to a local recipient via smtp
@@ -508,9 +581,15 @@ function smtpToNonExistenLocalRecipient {
     else
         # ok
         echo "===> Ok: Your server reject unknown recipients" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # Send a mail to a local recipient via smtp from a non existen local sender
@@ -539,9 +618,15 @@ function smtpFromNonExistenLocalRecipient {
     else
         # ok
         echo "===> Ok: Your server reject unknown senders in your domain" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # Send a mail to a local recipient from a valid local sender with no auth
@@ -569,9 +654,15 @@ function smtpFromExistenLocalRecipientNoAuth {
     else
         # ok
         echo "===> Ok: Your server refuse to relay valid sender emails with no auth" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # Send a mail to a local recipient via submission
@@ -600,9 +691,15 @@ function submissionToNonExistenLocalRecipient {
     else
         # ok
         echo "===> Ok: Your server reject unknown recipients (Submission)" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # Test OpenRleay
@@ -631,9 +728,15 @@ function smtpOpenRelay {
     else
         # ok
         echo "===> Ok: Your server is not an open relay" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # Send and email to the admin via smtps
@@ -661,9 +764,15 @@ function smtpsToValidLocalRecipient {
     else
         # ok
         echo "===> Ok: The server rejects relaying mail though unauthenticated SMTPS" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # try to spoof the address with auth as une user and from another
@@ -694,9 +803,15 @@ function submissionLocalAuthNotSender {
     else
         # ok
         echo "===> Ok: The server does NOT allow id spoofing" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # Test attachment limits
@@ -728,9 +843,15 @@ function smtpAttachLimits {
     else
         # ok
         echo "===> Ok: Mail size restriction is working (SMTP)" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # Test attachment limits
@@ -763,9 +884,15 @@ function submissionAttachLimits {
     else
         # ok
         echo "===> Ok: Mail size restriction is working (SUBMISSION)" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # send a smtp email from internet to a only national account
@@ -793,9 +920,15 @@ function smtpFromInetToNationalRestrictedRecipient {
     else
         # ok
         echo "===> Ok: National restricted users can't receive emails from outside" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # send a submission email with auth from a national user to inet
@@ -824,9 +957,15 @@ function submissionAuthFromNationalToInet {
     else
         # ok
         echo "===> Ok: National restricted users can't send emails to internet" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # send a submissionauth email from nac sender to outside nac domian
@@ -855,9 +994,15 @@ function submissionAuthNAtionalToExternalNational {
     else
         # ok
         echo "===> Ok: National restricted users can send emails to national address" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # Send and submission email from a local user
@@ -885,9 +1030,15 @@ function submissionAuthLocaltoInet {
     else
         # ok
         echo "===> Ok: Local restricted users can't send emails to internet" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # submission send local email to myself
@@ -916,9 +1067,15 @@ function submissionAuthLocalToLocal {
     else
         # ok
         echo "===> Ok: Local restricted users can send emails to local recipients" | tee -a $LOG
+
+        # score point
+        (( POINTS += 1 ))
     fi
     # sum the logs
     cat $LOGP >> $LOG
+
+    # increase max points
+    (( MAXPOINTS += 1 ))
 }
 
 # action ges here...
