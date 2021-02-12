@@ -8,6 +8,8 @@ Script for security tests on mail servers
 
 Eutelia is a popular Cuban cartoon character. A nosy and sincere Cuban girl who says all the things that adults think but don't say. The name came as a joke in the SysadmindeCuba Telegram group, and we agreed on it.
 
+To honor the cartoon character and the complete "Elpidio Valdez" saga, you will get a random quote from any of the characters of the saga with the evaluation of your server, with a pich of actuallity.
+
 ## What it does
 
 It test for common vulnerabilities in mail servers, such as:

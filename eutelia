@@ -33,9 +33,54 @@ POINTS=0
 MAXPOINTS=0
 
 # eutelia frases
-expressions_bad=("Pepito: no puedes inventar sin estudiar..." "A la OSRI no le gusta tu servidor..." "Quieres un vasito de leche fresca para que pases la pena..." "Mariasilvia esto está en llamas..." "Mi coronel esto está pobrecito, pobrecito..." "Suave Pomarosa que este camino está malo, malo..." "La OSRI se daría gusto contigo")
-expression_regular=("Ves Pomarosa, ya esto está mejor..." "Quieres un vasito de leche por tu buen esfuerzo..." "Ese fusíl si tira pa arriba de los panchos...")
-expression_good=("Ahora si podemos hacer una guerra decente..." "Esto está bueno mi coronel..." "Tan bueno como las cremitas de lecho que hago con la leche de Pomarosa..." "A la OSRI le gusta tu servidor...")
+expressions_bad=(\
+    "Pepito: no puedes inventar sin estudiar..." \
+    "Quieres un vasito de leche fresca para que pases la pena..." \
+    "Maria Silvia esto está en llamas..." \
+    "Mi coronel esto está pobrecito, pobrecito..."\
+    "Suave Pomarosa que este camino está malo, malo..." \
+    "¡Este, hombre, que vais a matar a uno aquí adentro!" \
+    "¡Ay, mamacita qué dolor!" \
+    "¡Alarma, pa to  el campamento!" \
+    "Corneta, toque usted «A degüello»." \
+    "¡Qué susto, Josú!" \
+    "Se oye clarito, clarito: ¡retiradaaaaaa!" \
+    "¡Muchaaaachooo, ven acá, condena o, que tú ta herío!" \
+    "¡Bestia, qué estamos comiendo!" \
+    "¡Váyase y domine ese rifle!" \
+    "Este… hombre, que lo váis a matar a uno aquí adentro" \
+    "¡Ño! María Silvia, vieja" \
+    "Dice que él no habla" \
+    "Oye, oye, la candela es aquí" \
+    "Me vine de España para hacer papelazos" \
+    "Oe Media, no te embarques" \
+)
+expression_regular=(\
+    "Ves Pomarosa, ya esto está mejor..." \
+    "Quieres un vasito de leche por tu buen esfuerzo..." \
+    "Ese fusíl si tira pa arriba de los panchos..." \
+    "No se preocupe, Generá, que los vamos a hacé puré de talco." \
+    "Yo le garantizo, mi “generá”, que en la próxima aventura lo hacemos papilla de tortilla de puré de talco" \
+    "El caballo no habló, pero ha dicho que veremos muy pronto a Elpidio Valdés" \
+    "Bueno qué, vamo  a fajarno..." \
+    "Caballero, al machete y con la lù apagá" \
+    "Tira pa que tú veas compay" \
+    "Fuego y recontrafuego" \
+    "Arriba caballero, que hay mucho machete que dar todavía " \
+)
+ expression_good=( \
+    "Ahora si podemos hacer una guerra decente..." \
+    "Esto está bueno mi coronel..." \
+    "El machete es un hierro, compay" \
+    "¡Adelante, leones hispanos, no os dejéis provocaarrr!" \
+    "Palmiche cará, ese sí es un caballo de guerra" \
+    "Aquí también 'aletta' lo 'mijmo'" \
+    "Se llama di-na-mo, pa’ que lo sepa usté" \
+    "Eres un genio Oliverio!" \
+    "Adelante, mis leones hispanos" \
+    "Toque usted a degüello" \
+    "La contrainteligencia es la contrainteligencia chavá" \
+)
 
 # Main function
 function main {
